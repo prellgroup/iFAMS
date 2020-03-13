@@ -1,0 +1,261 @@
+import numpy as np
+
+def Fourier (x,y,po2):
+    """
+    This performs an ordinary Fourier transform.
+    :param x: m/z data
+    :param y: abundance data
+    :return: xFT, yFT
+    """
+    BW = len(x)/(x[-1]-x[0])
+    xFT = np.linspace(0,BW-1/po2,int(po2))
+    yFT = np.fft.fft(y)
+
+    return xFT,yFT
+
+def inverseFT(xFT,yFT,submass,cs,y,po2):
+    """
+    this function will inverse FT window selected data based on the charge states
+    and subunit mass. It places windows around the peaks based on the calculated charge state
+    and subunit mass
+    :param xFT: the x FT data
+    :param yFT: the yFT data
+    :param submass: subunit mass
+    :param cs: charge states
+    :param y: the y data, used for
+    :param po2: helps remove the zero pad
+    :return: IFT, a list of charge state specific inverse Fourier transforms
+    """
+    IFT = []
+    msintegral = sum(y) #integral of the y data
+    IFTintegral = [] #makes a list of the charge state specific integrals
+    IFTtot = 0 #this will be the sum of the all of the charge state specific integrals
+    omega = 1/submass/2 #this is the spacing between peaks, used to make the windows
+    data_remove = np.linspace(len(y),po2,po2-len(y)+1) #makes a list as index for removal of zero pad
+    for i in range(len(cs)):
+        fttemp = yFT*0
+        maxFreq = cs[i]/submass+omega
+        minFreq = cs[i]/submass-omega
+        for j in range(len(fttemp)):
+            if xFT[j] > minFreq and xFT[j]<maxFreq:
+                fttemp[j]=yFT[j]
+        IFTtemp = np.fft.ifft(fttemp)
+        IFT.append(np.delete(IFTtemp,data_remove))
+        IFTintegral.append(sum(abs(fttemp)))
+        IFTtot += sum(abs(fttemp))
+
+    ##### normalizes data ########
+    for i in range(len(IFTintegral)):
+        corfact = IFTintegral[i]*msintegral/IFTtot
+        IFT[i] = IFT[i]/sum(abs(IFT[i]))*corfact
+    ##### normalizes data ########
+
+    return IFT
+
+def zerocharge (IFT,x,cs):
+    """
+    This will perform the zero charge operation for the charge state specific reconstructions.
+    :param IFT: the list of charge state specific integrations
+    :param x: a list of x values
+    :param cs: the list of charge states
+    :return: xzero,cszero,zerofull
+    """
+    #### makes xlist for zerocharge calculation ######
+    cszero = []
+    xmin = round(x[0]*cs[0],0)
+    xmax = round(x[-1]*cs[-1],0)
+    xzero = np.round(np.linspace(xmin,xmax,int(xmax-xmin+1)),0)
+    zerofull = np.zeros(len(xzero))
+    for i in range(len(cs)):
+        xtemp = x*cs[i]
+        index1 = np.linspace(0,cs[i]-1,int(cs[i]))
+        index2 = np.zeros(int(cs[i]))
+        ytemp = np.interp(xzero,xtemp,IFT[i])
+        ytemp = np.delete(ytemp,index1)#### corrects for the charge
+        ytemp = np.append(ytemp,index2)#### corrects for the charge
+        cszero.append(ytemp)
+        zerofull += ytemp
+
+
+    return xzero,cszero,zerofull
+
+def higher_harmonic(xFT,yFT,submass,cs,y,po2,harmnum):
+    """
+    this does exactly the same calculation as def inverse_FT, except is uses multiple
+    harmonics.
+    :param xFT: the x FT data
+    :param yFT: the yFT data
+    :param submass: subunit mass
+    :param cs: charge states
+    :param y: the y data, used for
+    :param po2: helps remove the zero pad
+    :param harmnum: the number of harmonics to use
+    :return: IFT, a list of charge state specific inverse Fourier transforms
+    """
+    IFT = []
+    msintegral = sum(y) #integral of the y data
+    IFTintegral = [] #makes a list of the charge state specific integrals
+    IFTtot = 0 #this will be the sum of the all of the charge state specific integrals
+    omega = 1/submass/2 #this is the spacing between peaks, used to make the windows
+    data_remove = np.linspace(len(y),po2,po2-len(y)+1) #makes a list as index for removal of zero pad
+    for i in range(len(cs)):
+        fttemp = yFT * 0
+        for k in range(len(harmnum)):
+            maxFreq = harmnum[k]*cs[i]/submass+omega
+            minFreq = harmnum[k]*cs[i]/submass-omega
+            for j in range(len(fttemp)):
+                if xFT[j] > minFreq and xFT[j]<maxFreq:
+                    fttemp[j]=yFT[j]
+        IFTtemp = np.fft.ifft(fttemp)
+        IFT.append(np.delete(IFTtemp,data_remove))
+        IFTintegral.append(sum(abs(fttemp)))
+        IFTtot += sum(abs(fttemp))
+
+
+    ##### normalizes data ########
+    for i in range(len(IFTintegral)):
+        corfact = IFTintegral[i]*msintegral/IFTtot
+        IFT[i] = IFT[i]/sum(abs(IFT[i]))*corfact
+    ##### normalizes data ########
+
+    return IFT
+
+def rel_freq(cs,submass,ftx,FT):
+    xvalues = []
+    yvalues = []
+    for i in range(0, len(cs)):
+        start = cs[i] / submass
+        for j in range(0, len(ftx)):
+            if ftx[j] > start:
+                xvalues.append(ftx[j])
+                yvalues.append(abs(FT[j]))
+                break
+
+    return xvalues,yvalues
+
+
+def peakfinder(ftx, ABFT, minX, minY, delta):
+    """
+    Parameters
+    ----------
+    ftx : xlist of the FT data
+    ABFT : absolute value of the FT data
+    minX : x value threshold for local maxima search
+    minY : y value threshold for consideration as a relevant local maximum
+    delta : window halfwidth for searching for a greater value (defined in # datapoints)
+
+    Returns
+    -------
+    xvalue : list of x coordinates for each local maximum
+    yvalue : list of y coordinates for each local maximum
+    """
+    """
+    peakx = []
+    peaky = []
+    xvalue = []
+    yvalue = []
+    for i in range(int(len(ftx) / 2)):
+        if ftx[i] < minX:
+            continue
+        else:
+            while ABFT[i] >= minY:
+                yhat = []
+                for j in range(i - delta, i + delta):
+                    yhat.append(ABFT[j])
+                if max(yhat) == ABFT[i]:
+                    peakx.append(ftx[i])
+                    peaky.append(ABFT[i])
+                break
+    for i in range(len(peakx)):
+        if round((peakx[i + 1] - peakx[i]) / (peakx[1] - peakx[0]), 0) == 1:
+            xvalue.append(peakx[i])
+            yvalue.append(peaky[i])
+        else:
+            xvalue.append(peakx[i])
+            yvalue.append(peaky[i])
+            break
+    return xvalue, yvalue
+    """
+
+    try:
+        xlist = []
+        ylist = []
+        xfinal = []
+        yfinal = []
+        for i in range(0+delta,int(len(ftx) / 2)):
+            if ftx[i] < minX:
+                continue
+            else:
+                baseline = True
+                maxima = True
+                if ABFT[i] < minY:
+                    baseline = False
+                for j in range(i-delta,i+delta):
+                    if ABFT[j]>ABFT[i]:
+                        maxima = False
+
+                if maxima == True and baseline == True:
+                    xlist.append(ftx[i])
+                    ylist.append(ABFT[i])
+        intspace = xlist[1] - xlist[0]
+        xfinal.append(xlist[0])
+        yfinal.append(ylist[0])
+        for i in range(1,len(xlist)-1):
+            spacing = xlist[i+1] - xlist[i]
+            if spacing/intspace > 0.95 and spacing/intspace < 1.05:
+                xfinal.append(xlist[i])
+                yfinal.append(ylist[i])
+            if spacing / intspace < 0.95 or spacing / intspace > 1.05:
+                xfinal.append(xlist[i])
+                yfinal.append(ylist[i])
+                break
+        return xfinal,yfinal
+    except IndexError:
+        print('Found no peaks. Please reinput parameters ')
+
+def chgnsubmass(xvalue, ftx, ABFT):
+    """
+    Parameters
+    ----------
+    xvalues : list of x coordinates for local maxima found by maxfin
+    ftx : xlist of the FT data
+    ABFT : absolute value of the FT data
+
+    Returns
+    -------
+    chargestatesr : integer values for the chargestates
+    submass : average of the period of the fourier spectrum's local maxima
+    stdevmass : standard deviation of the average period
+    """
+    omega = ((xvalue[-1] - xvalue[0]) / (len(xvalue) - 1))
+    chargestatesr = []
+    centroids = []
+    for i in range(len(xvalue)):
+        numerator = 0
+        denominator = 0
+        submasstot = 0
+        stdevtot = 0
+
+        for j in range(np.int_(np.ceil((xvalue[i] - omega / 2) / ftx[1] - 1)),
+                       np.int_(np.ceil((xvalue[i] + omega / 2) / ftx[1]))):
+            numerator += ABFT[j] * ftx[j]
+            denominator += ABFT[j]
+        centroids.append(numerator / denominator)
+
+    for i in range(len(xvalue)):
+        ch = xvalue[i] / omega
+        chround = np.round(ch)
+        chargestatesr.append(chround)
+
+    for i in range(len(xvalue)):
+        deltasmtot = (1 / centroids[i]) * chargestatesr[i]
+        submasstot += deltasmtot
+    submass = submasstot / (len(xvalue))
+
+    for i in range(len(xvalue)):
+        deltastdevtot = (1 / centroids[i] * chargestatesr[i] - submass) ** 2
+        stdevtot += deltastdevtot
+    stdevmass = np.sqrt(stdevtot / (len(xvalue) + 1))
+
+    print(chargestatesr,submass,stdevmass)
+    return chargestatesr, submass, stdevmass
