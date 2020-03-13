@@ -1,0 +1,119 @@
+import numpy as np
+import scipy
+import scipy.signal as sp
+
+def stft(data,freqchan,window):
+    """
+    This performs the STFT
+    :param data: The y data that will be STFT
+    :param winnum: The number of windows
+    :param window: The built window used for the STFT
+    :return: X, a matrix the STFT coefficients
+    """
+    if window == 'gaussian':
+        stdev = int(0.1 * freqchan)
+        window = sp.get_window((window, stdev), freqchan)
+    else:
+        window = sp.get_window(window, freqchan)
+    timehop = int(freqchan)
+    overlap = int(0.1*freqchan)
+    X = scipy.array([scipy.fft(window*data[i:i+timehop])
+                     for i in range(0, len(data)-timehop, overlap)])
+    return X
+
+def re_stft(X,winnum,ypadd,yint):
+    """
+    This function can replot the STFT back into the time domain
+    It is good to check that the replot looks like your original spectrum
+    If not, then some parameters need to be changed
+
+    :param X: the matrix with the STFT coefficients
+    :param winnum: the number of windows
+    :param freqnum: The number of frequency points = the number of original data points
+    :return:
+    """
+    inspec = np.fft.fft(ypadd)*0
+    freqnum = len(inspec)
+    timehop = X.shape[1]
+    overlap = int(0.1*winnum)
+    for n,i in enumerate(range(0, freqnum-timehop, overlap)):
+        inspec[i:i+timehop] += (scipy.ifft(X[n]))
+
+    data_remove = np.linspace(len(yint), len(ypadd), len(ypadd) - len(yint) + 1)
+    inspec = np.delete(inspec,data_remove)
+    return inspec
+
+def line_baseline(y,x,delta):
+    xlist = []
+    ylist = []
+    baseline = []
+    for i in range(len(y)):
+        if y[i] > 0 or y[i] < 0:
+            minX = x[i]
+            break
+    for i in range(0 + delta, len(y) - delta):
+        if x[i] < minX:
+            continue
+        else:
+            large = True
+            negative = True
+            if y[i] >= 0:
+                negative = False
+            for j in range(i - delta, i + delta):
+                if y[i] > y[j]:
+                    large = False
+            if large == True and negative == True:
+                xlist.append(x[i])
+                ylist.append(y[i])
+
+    for i in range(int(xlist[0]-x[0])):
+        baseline.append(0)
+    for i in range(0,len(xlist)-1):
+        slope = (ylist[i+1]-ylist[i])/(xlist[i+1]-xlist[i])
+        b = ylist[i] - slope*xlist[i]
+        for j in range(int(xlist[i]-min(x)),int(xlist[i+1]-min(x))):
+            baseline.append(slope*x[j] + b)
+    for i in range(int(x[-1] - xlist[-1])+1):
+        baseline.append(0)
+    return baseline
+
+def integrate(y,yc,x,delta,minY,minX):
+    xlist = []
+    ylist = []
+    xint = []
+    xref = []
+    yref = []
+    sumlist = []
+    for i in range(0 + delta, len(y) - delta):
+        if x[i] < minX:
+            continue
+        else:
+            large = True
+            baseline = True
+            if y[i] < minY:
+                baseline = False
+            for j in range(i - delta, i + delta):
+                if y[i] < y[j]:
+                    large = False
+            if large == True and baseline == True:
+                xint.append(i)
+                xlist.append(x[i])
+                ylist.append(y[i])
+    for i in range(0,len(xint)):
+        sum = 0
+        refnum = xint[i]
+        for j in range(0,len(x)):
+            if y[refnum-j] < y[refnum-(j+1)]:
+                leftnum = refnum-j
+                break
+        for j in range(0,len(x)):
+            if y[refnum+j] < y[refnum+j+1]:
+                rightnum = refnum+j
+                break
+        xref.append(x[leftnum:rightnum])
+        yref.append(yc[leftnum:rightnum])
+        for i in range(leftnum,rightnum):
+            sum += y[i]
+        sumlist.append(round(sum,4))
+
+    return xlist,ylist,xref,yref,sumlist
